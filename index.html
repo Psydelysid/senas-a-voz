@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Señas a Voz</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>Señas a Voz</h1>
+    <p class="sub">Haz señas frente a la cámara y la app las dice en voz alta, en tiempo real.</p>
+  </header>
+
+  <main>
+    <section class="stage">
+      <div class="video-wrap">
+        <video id="video" playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div id="placeholder" class="placeholder">
+          <p>La cámara está apagada</p>
+          <button id="startBtn" class="primary">Encender cámara</button>
+          <p id="loadStatus" class="muted"></p>
+        </div>
+        <div id="caption" class="caption" aria-live="polite"></div>
+        <div id="countdown" class="countdown" hidden></div>
+      </div>
+
+      <div class="live">
+        <div><span class="muted">Detectando:</span> <strong id="current">—</strong></div>
+        <div class="meter"><div id="holdBar"></div></div>
+      </div>
+
+      <div class="transcript-box">
+        <div class="row between">
+          <h2>Transcripción</h2>
+          <div class="row">
+            <button id="speakAllBtn">Decir todo</button>
+            <button id="clearBtn">Borrar</button>
+          </div>
+        </div>
+        <p id="transcript" class="transcript"></p>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <details open>
+        <summary>Voz</summary>
+        <label>Voz
+          <select id="voiceSelect"></select>
+        </label>
+        <label>Velocidad <span id="rateVal">1.0</span>
+          <input id="rate" type="range" min="0.5" max="1.8" step="0.1" value="1">
+        </label>
+        <label class="check"><input id="muteChk" type="checkbox"> Silenciar (solo subtítulos)</label>
+        <button id="testVoiceBtn">Probar voz</button>
+      </details>
+
+      <details open>
+        <summary>Reconocimiento</summary>
+        <label>Mantener la seña <span id="holdVal">600</span> ms
+          <input id="hold" type="range" min="250" max="1500" step="50" value="600">
+        </label>
+        <label>Tolerancia de señas entrenadas <span id="tolVal">0.30</span>
+          <input id="tol" type="range" min="0.10" max="0.60" step="0.02" value="0.30">
+        </label>
+        <label class="check"><input id="builtinChk" type="checkbox" checked> Usar señas predefinidas</label>
+        <table class="builtins">
+          <tbody>
+            <tr><td>🖐️ Mano abierta</td><td>Hola</td></tr>
+            <tr><td>👍 Pulgar arriba</td><td>Bien</td></tr>
+            <tr><td>👎 Pulgar abajo</td><td>Mal</td></tr>
+            <tr><td>✌️ Índice y medio</td><td>Paz</td></tr>
+            <tr><td>🤟 Pulgar, índice y meñique</td><td>Te quiero</td></tr>
+            <tr><td>🤙 Pulgar y meñique</td><td>Llámame</td></tr>
+            <tr><td>☝️ Índice arriba</td><td>Un momento</td></tr>
+            <tr><td>👌 Círculo con pulgar e índice</td><td>De acuerdo</td></tr>
+            <tr><td>✊ Puño</td><td><em>pausa / reinicio</em></td></tr>
+          </tbody>
+        </table>
+      </details>
+
+      <details open>
+        <summary>Enseñar mis propias señas</summary>
+        <p class="muted small">Escribe la palabra o frase, pulsa <b>Grabar</b> y haz la seña frente a la cámara durante 3 segundos (muévela un poco). Graba la misma seña 2–3 veces para que la reconozca mejor. Funciona con una o dos manos.</p>
+        <div class="row">
+          <input id="signName" type="text" placeholder="Ej.: Gracias" maxlength="60">
+          <button id="recordBtn" class="primary">Grabar</button>
+        </div>
+        <ul id="signList" class="sign-list"></ul>
+        <div class="row">
+          <button id="exportBtn">Exportar</button>
+          <label class="file-btn">Importar<input id="importFile" type="file" accept="application/json" hidden></label>
+        </div>
+      </details>
+    </aside>
+  </main>
+
+  <footer class="muted small">
+    Todo el procesamiento ocurre en tu navegador; el video no se envía a ningún servidor.
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
