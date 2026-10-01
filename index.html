@@ -2,17 +2,24 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Señas a Voz</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header>
     <h1>Señas a Voz</h1>
-    <p class="sub">Haz señas frente a la cámara y la app las dice en voz alta, en tiempo real.</p>
+    <p class="sub">Traduce señas a voz y voz a señas, en tiempo real.</p>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" role="tab" data-mode="sign" aria-selected="true">✋ Señas → Voz</button>
+      <button class="tab" role="tab" data-mode="voice" aria-selected="false">🎤 Voz → Señas</button>
+    </nav>
   </header>
 
-  <main>
+  <main id="modeSign">
     <section class="stage">
       <div class="video-wrap">
         <video id="video" playsinline muted></video>
@@ -96,8 +103,69 @@
     </aside>
   </main>
 
+  <main id="modeVoice" hidden>
+    <section class="stage">
+      <div class="sign-stage">
+        <canvas id="signCanvas" width="640" height="480"></canvas>
+        <div id="signBig" class="sign-big"></div>
+        <div class="sign-caption">
+          <div id="signWord" class="sign-word">Pulsa «Escuchar» y habla</div>
+          <div id="signHow" class="muted"></div>
+        </div>
+      </div>
+
+      <div class="live">
+        <button id="micBtn" class="primary big">🎤 Escuchar</button>
+        <span id="micStatus" class="muted small"></span>
+      </div>
+      <p id="interim" class="interim muted"></p>
+
+      <form id="typeForm" class="row">
+        <input id="typeText" type="text" placeholder="…o escribe un texto" maxlength="300">
+        <button type="submit">Mostrar</button>
+      </form>
+
+      <div class="transcript-box">
+        <div class="row between">
+          <h2>Lo que escuché</h2>
+          <div class="row">
+            <span id="queueInfo" class="muted small"></span>
+            <button id="skipBtn">Limpiar</button>
+          </div>
+        </div>
+        <p id="heardLog" class="transcript"></p>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <details open>
+        <summary>Ajustes</summary>
+        <label>Idioma que se escucha
+          <select id="langSelect">
+            <option value="es-MX" selected>Español (México)</option>
+            <option value="es-ES">Español (España)</option>
+            <option value="es-US">Español (EE. UU.)</option>
+            <option value="es-AR">Español (Argentina)</option>
+            <option value="es-CO">Español (Colombia)</option>
+            <option value="es-CL">Español (Chile)</option>
+            <option value="en-US">English (US)</option>
+          </select>
+        </label>
+        <label>Velocidad de las señas <span id="signSpeedVal">1.0</span>
+          <input id="signSpeed" type="range" min="0.5" max="2" step="0.1" value="1">
+        </label>
+        <label class="check"><input id="spellChk" type="checkbox" checked> Deletrear palabras sin seña</label>
+      </details>
+      <details open>
+        <summary>¿Qué señas muestra?</summary>
+        <p class="muted small">Las 8 señas predefinidas (también reconoce «te amo», «ok», «espera»…) y todas las que enseñes en <b>Señas → Voz</b>, animadas tal como las grabaste.</p>
+        <p class="muted small">Las palabras sin seña se deletrean. Si enseñas el alfabeto (graba señas llamadas «A», «B», «C»…), el deletreo usará tus señas.</p>
+      </details>
+    </aside>
+  </main>
+
   <footer class="muted small">
-    Todo el procesamiento ocurre en tu navegador; el video no se envía a ningún servidor.
+    El video de la cámara se procesa solo en tu dispositivo. En «Voz → Señas», el navegador puede enviar el audio a su servicio de reconocimiento de voz (por ejemplo, Google en Chrome) para transcribirlo.
   </footer>
 
   <script type="module" src="app.js"></script>

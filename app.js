@@ -1,9 +1,7 @@
-import {
-  FilesetResolver,
-  HandLandmarker,
-  DrawingUtils,
-} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+import { initListen } from "./listen.js";
 
+// MediaPipe se carga al encender la cámara, así el modo Voz → Señas funciona aunque falle.
+const VISION_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
@@ -16,6 +14,7 @@ const canvas = $("overlay");
 const ctx = canvas.getContext("2d");
 
 // ---------- Estado ----------
+let vision = null; // módulo de MediaPipe
 let landmarker = null;
 let drawer = null;
 let running = false;
@@ -203,6 +202,8 @@ async function start() {
   try {
     status.textContent = "Cargando modelo de manos…";
     if (!landmarker) {
+      vision = await import(VISION_URL);
+      const { FilesetResolver, HandLandmarker } = vision;
       const fileset = await FilesetResolver.forVisionTasks(WASM_URL);
       const opts = {
         baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
@@ -227,7 +228,7 @@ async function start() {
     await video.play();
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    drawer = new DrawingUtils(ctx);
+    drawer = new vision.DrawingUtils(ctx);
     $("placeholder").hidden = true;
     running = true;
     requestAnimationFrame(loop);
@@ -239,6 +240,17 @@ async function start() {
         : `No se pudo iniciar: ${err?.message || err}`;
     btn.disabled = false;
   }
+}
+
+function stopCamera() {
+  running = false;
+  video.srcObject?.getTracks().forEach((t) => t.stop());
+  video.srcObject = null;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  update(null, performance.now());
+  $("placeholder").hidden = false;
+  $("startBtn").disabled = false;
+  $("loadStatus").textContent = "";
 }
 
 function loop() {
@@ -256,7 +268,7 @@ function loop() {
 function draw(result) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   for (const lm of result.landmarks) {
-    drawer.drawConnectors(lm, HandLandmarker.HAND_CONNECTIONS, { color: "#4f8cff", lineWidth: 4 });
+    drawer.drawConnectors(lm, vision.HandLandmarker.HAND_CONNECTIONS, { color: "#4f8cff", lineWidth: 4 });
     drawer.drawLandmarks(lm, { color: "#ffffff", fillColor: "#22c55e", radius: 4 });
   }
 }
@@ -412,6 +424,29 @@ $("tol").oninput = (e) => {
   settings.tolerance = Number(e.target.value);
   $("tolVal").textContent = settings.tolerance.toFixed(2);
 };
+
+// ---------- Pestañas ----------
+const listener = initListen({ getSigns: () => customSigns });
+
+for (const tab of document.querySelectorAll(".tab")) {
+  tab.onclick = () => {
+    const mode = tab.dataset.mode;
+    for (const t of document.querySelectorAll(".tab")) {
+      const active = t === tab;
+      t.classList.toggle("active", active);
+      t.setAttribute("aria-selected", active);
+    }
+    $("modeSign").hidden = mode !== "sign";
+    $("modeVoice").hidden = mode !== "voice";
+    if (mode === "voice") {
+      // Sin cámara ni voz sintética: ahorra batería y evita que el micrófono se oiga a sí mismo.
+      if (running) stopCamera();
+      if ("speechSynthesis" in window) speechSynthesis.cancel();
+    } else {
+      listener.stop();
+    }
+  };
+}
 
 if ("speechSynthesis" in window) {
   loadVoices();
