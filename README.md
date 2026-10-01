@@ -60,9 +60,18 @@ python3 -m http.server 8000
 # abre http://localhost:8000
 ```
 
+## Instalarla en el celular
+
+Abre https://psydelysid.github.io/senas-a-voz/ y:
+
+- **Android (Chrome):** pulsa **📲 Instalar app**, arriba a la derecha. Si no aparece: menú ⋮ → **Instalar app** (o «Agregar a la pantalla de inicio»).
+- **iPhone (Safari):** botón Compartir → **Agregar a inicio**.
+
+Queda un ícono como cualquier app y se abre a pantalla completa. Después de abrirla una vez con internet, la cámara, el deletreo, el diccionario y las frases funcionan **sin conexión**. Escuchar voz (subtítulos y Voz → Señas) sí necesita internet.
+
 ## Publicarla (GitHub Pages)
 
-Settings → Pages → *Deploy from a branch* → `main` / `(root)` → Save. Para usarla como app en el celular, ábrela y elige «Agregar a la pantalla de inicio».
+Settings → Pages → *Deploy from a branch* → `main` / `(root)` → Save.
 
 ## Limitaciones
 

@@ -7,11 +7,18 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Señas a Voz</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="Señas a Voz">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header>
-    <h1>Señas a Voz</h1>
+    <div class="row between">
+      <h1>Señas a Voz</h1>
+      <button id="installBtn" class="primary" hidden>📲 Instalar app</button>
+    </div>
     <p class="sub">Traduce Lengua de Señas Mexicana (LSM) a voz y voz a LSM, en tiempo real.</p>
     <nav class="tabs" role="tablist">
       <button class="tab active" role="tab" data-mode="sign" aria-selected="true">💬 Conversación</button>

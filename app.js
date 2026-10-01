@@ -946,6 +946,26 @@ renderPhrases();
 renderCalibStatus();
 renderWord();
 
+// ---------- Instalar como app ----------
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch((e) => console.warn("Sin modo sin conexión:", e));
+}
+let installPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  // Android/Chrome: se muestra un botón propio en lugar del aviso del navegador.
+  e.preventDefault();
+  installPrompt = e;
+  $("installBtn").hidden = false;
+});
+$("installBtn").onclick = async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice;
+  installPrompt = null;
+  $("installBtn").hidden = true;
+};
+window.addEventListener("appinstalled", () => ($("installBtn").hidden = true));
+
 // Pruebas automáticas: con ?debug en la URL se puede alimentar el reconocimiento sin cámara.
 if (new URLSearchParams(location.search).has("debug")) {
   window.__debug = {
