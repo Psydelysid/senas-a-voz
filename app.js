@@ -132,15 +132,18 @@ const trail = [];
  * ¿La mano se está moviendo? Mira el recorrido de la punta del índice en los últimos 0.7 s,
  * contando solo desde `since` (cuando se aceptó la forma): el salto de una letra a otra no cuenta.
  */
-function trackMotion(lm, now, since) {
+function trackMotion(lm, now, label, since, shapeLabel) {
   const ps = palmSize(lm);
-  trail.push({ t: now, x: lm[8].x / ps, y: lm[8].y / ps });
+  trail.push({ t: now, x: lm[8].x / ps, y: lm[8].y / ps, label });
   while (trail.length && now - trail[0].t > 700) trail.shift();
-  const pts = trail.filter((p) => p.t >= since);
+  // Solo cuadros con la forma aceptada; el recorrido se suma entre cuadros seguidos con esa forma,
+  // así el salto hacia otra letra (o un cuadro suelto mal reconocido) no cuenta como movimiento.
   let path = 0;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  pts.forEach((p, i) => {
-    if (i) path += Math.hypot(p.x - pts[i - 1].x, p.y - pts[i - 1].y);
+  trail.forEach((p, i) => {
+    if (p.t < since || p.label !== shapeLabel) return;
+    const prev = trail[i - 1];
+    if (prev && prev.t >= since && prev.label === shapeLabel) path += Math.hypot(p.x - prev.x, p.y - prev.y);
     minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
     minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
   });
@@ -174,9 +177,14 @@ function finishWord() {
   emit(text);
 }
 
-/** Se llama en cada cuadro mientras se sostiene una forma ya aceptada. */
+/**
+ * Se llama en cada cuadro mientras se sostiene una forma ya aceptada. Solo cuenta mientras la mano
+ * muestra esa forma; pero un cuadro mal reconocido a mitad del movimiento (la imagen se barre) no
+ * la hace olvidar: al volver a reconocerse, el movimiento sigue contando.
+ */
 function checkMotion(moving, edgeOn) {
   if (!dyn || dyn.upgraded || !moving) return;
+  if (stab.label !== `s:${dyn.shape}`) return;
   const letter = dynamicLetter(dyn.shape, edgeOn);
   if (!letter) return;
   if (dyn.pending) {
@@ -191,19 +199,39 @@ function checkMotion(moving, edgeOn) {
 }
 
 // ---------- Estabilizador: una seña debe mantenerse antes de aceptarla ----------
-const stab = { label: null, since: 0, spoken: null, emptySince: 0 };
+const stab = { label: null, since: 0, spoken: null, emptySince: 0, cand: undefined, candSince: 0 };
+const DEBOUNCE_MS = 120;
 
 /** label: "w:<palabra>" (seña propia) · "s:<forma>" (abecedario) · null */
-function update(label, now) {
+function update(raw, now) {
+  // Un cambio de forma solo cuenta si dura un momento: un cuadro mal leído (la imagen se barre
+  // al mover la mano) no reinicia el tiempo de "sostener la seña".
+  let label = stab.label;
+  if (raw === stab.label) {
+    stab.cand = undefined;
+  } else {
+    if (raw !== stab.cand) {
+      stab.cand = raw;
+      stab.candSince = now;
+    }
+    if (now - stab.candSince >= DEBOUNCE_MS) {
+      label = raw;
+      stab.cand = undefined;
+    }
+  }
   if (label !== stab.label) {
     stab.label = label;
     stab.since = now;
-    dyn = null;
   }
+  // Otra forma sostenida más de 0.3 s: la anterior ya no puede convertirse en letra con movimiento.
+  if (dyn && label && label !== `s:${dyn.shape}` && now - stab.since > 300) dyn = null;
   if (label === null) {
     if (!stab.emptySince) stab.emptySince = now;
     // Bajar la mano o hacer puño ~0.3 s permite repetir la misma seña.
-    if (now - stab.emptySince > 300) stab.spoken = null;
+    if (now - stab.emptySince > 300) {
+      stab.spoken = null;
+      dyn = null;
+    }
   } else {
     stab.emptySince = 0;
   }
@@ -280,19 +308,47 @@ function showCaption(text) {
 let speakToken = 0;
 function speak(text, interrupt = true) {
   if (settings.muted || !("speechSynthesis" in window) || !text) return;
-  if (interrupt) speechSynthesis.cancel();
-  // El micrófono se pausa mientras la app habla, para no transcribir su propia voz.
+  // Safari falla a veces si se cancela y se habla al instante: solo se cancela si hay algo sonando.
+  if (interrupt && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
+  // El micrófono se pausa mientras la app habla, para no transcribir su propia voz. En iPhone,
+  // con el micrófono abierto la voz sale bajita por el auricular: se espera un momento a que se cierre.
   const token = ++speakToken;
+  const micWasOn = convListener.listening;
   convListener.pause();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = settings.voice?.lang || "es-ES";
-  if (settings.voice) u.voice = settings.voice;
-  u.rate = settings.rate;
-  u.onend = u.onerror = () => {
-    if (token === speakToken) setTimeout(() => token === speakToken && convListener.resume(), 300);
+  const resume = () => {
+    if (token !== speakToken) return;
+    clearTimeout(fallback);
+    setTimeout(() => token === speakToken && convListener.resume(), 300);
   };
-  speechSynthesis.speak(u);
+  // Plan B por si el navegador no avisa que terminó de hablar (pasa en iPhone).
+  const fallback = setTimeout(resume, 1500 + (text.length * 90) / settings.rate);
+  const go = () => {
+    if (token !== speakToken) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = settings.voice?.lang || "es-MX";
+    if (settings.voice) u.voice = settings.voice;
+    u.rate = settings.rate;
+    u.onend = u.onerror = resume;
+    speechSynthesis.speak(u);
+  };
+  if (micWasOn) setTimeout(go, 250);
+  else go();
 }
+
+/**
+ * iPhone/Safari solo deja hablar a una página después de que la persona la toca. Con el primer
+ * toque se dice algo vacío para "desbloquear" la voz; así luego se oyen las señas reconocidas.
+ */
+function unlockSpeech() {
+  if (!("speechSynthesis" in window)) return;
+  const u = new SpeechSynthesisUtterance(" ");
+  u.volume = 0;
+  speechSynthesis.speak(u);
+  document.removeEventListener("touchend", unlockSpeech, true);
+  document.removeEventListener("click", unlockSpeech, true);
+}
+document.addEventListener("touchend", unlockSpeech, true);
+document.addEventListener("click", unlockSpeech, true);
 
 // ---------- Escuchar a la otra persona ----------
 const convListener = createListener({
@@ -548,7 +604,6 @@ function process(result, now) {
     return;
   }
 
-  const moving = trackMotion(lm, now, dyn ? dyn.since : Infinity);
   const custom = classifyCustom(feat);
   let label = custom ? `w:${custom}` : null;
   if (!label && result.landmarks.length === 1) {
@@ -557,6 +612,7 @@ function process(result, now) {
     if (r) label = `s:${r.label}`;
   }
   update(label, now);
+  const moving = trackMotion(lm, now, label, dyn ? dyn.since : Infinity, dyn ? `s:${dyn.shape}` : null);
   const edgeOn = dist(lm[5], lm[17]) < dist(lm[0], lm[9]) * 0.4;
   checkMotion(moving, edgeOn);
   spotWords(result, now);
