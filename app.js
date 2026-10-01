@@ -1,5 +1,7 @@
 import { initListen } from "./listen.js";
 import { initAlphabet } from "./alphabet.js";
+import { FRASES, SUGERIDAS } from "./frases.js";
+import { canListen, createListener } from "./speech.js";
 import {
   LETTERS,
     STATIC_LETTER,
@@ -17,6 +19,7 @@ const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const STORAGE_KEY = "senas-a-voz:signs";
 const CALIB_KEY = "senas-a-voz:lsm-calibracion";
+const MY_PHRASES_KEY = "senas-a-voz:mis-frases";
 const RECORD_MS = 3000;
 const CALIB_MS = 1500;
 
@@ -227,11 +230,27 @@ function accept(label, now) {
 
 // ---------- Salida: voz + subtítulos ----------
 let captionTimer = 0;
+let lastSaid = "";
+
+/** Lo que expresa la persona que usa la app: se muestra, se registra y se dice en voz alta. */
 function emit(text) {
-  const t = $("transcript");
-  t.textContent = (t.textContent ? t.textContent + " " : "") + text;
+  lastSaid = text;
+  addMsg("me", text);
   showCaption(text);
   speak(text);
+}
+
+/** Registro de la conversación: "me" = quien usa la app, "them" = la otra persona. */
+function addMsg(who, text) {
+  const log = $("chatLog");
+  const div = document.createElement("div");
+  div.className = `msg ${who}`;
+  const label = document.createElement("small");
+  label.textContent = who === "me" ? "🧏 Yo" : "🗣️ La otra persona";
+  div.append(label, text);
+  log.appendChild(div);
+  while (log.children.length > 60) log.firstChild.remove();
+  log.scrollTop = log.scrollHeight;
 }
 
 function showCaption(text) {
@@ -242,14 +261,129 @@ function showCaption(text) {
   captionTimer = setTimeout(() => cap.classList.remove("show"), 1800);
 }
 
+let speakToken = 0;
 function speak(text, interrupt = true) {
   if (settings.muted || !("speechSynthesis" in window) || !text) return;
   if (interrupt) speechSynthesis.cancel();
+  // El micrófono se pausa mientras la app habla, para no transcribir su propia voz.
+  const token = ++speakToken;
+  convListener.pause();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = settings.voice?.lang || "es-ES";
   if (settings.voice) u.voice = settings.voice;
   u.rate = settings.rate;
+  u.onend = u.onerror = () => {
+    if (token === speakToken) setTimeout(() => token === speakToken && convListener.resume(), 300);
+  };
   speechSynthesis.speak(u);
+}
+
+// ---------- Escuchar a la otra persona ----------
+const convListener = createListener({
+  getLang: () => $("langSelect").value || "es-MX",
+  onFinal: (text) => {
+    text = text.trim();
+    if (!text) return;
+    const they = $("theySay");
+    they.classList.remove("muted");
+    they.textContent = text;
+    addMsg("them", text);
+  },
+  onInterim: (text) => ($("theyInterim").textContent = text),
+  onError: (msg) => {
+    $("convMicStatus").textContent = msg;
+    if (!convListener.listening) setConvMicIdle();
+  },
+});
+
+function setConvMicIdle() {
+  const b = $("convMicBtn");
+  b.textContent = "🎤 Escuchar";
+  b.classList.remove("listening");
+}
+
+function toggleConvMic() {
+  if (convListener.listening) {
+    convListener.stop();
+    setConvMicIdle();
+    $("convMicStatus").textContent = "";
+    return;
+  }
+  convListener.start();
+  const b = $("convMicBtn");
+  b.textContent = "Dejar de escuchar";
+  b.classList.add("listening");
+  $("convMicStatus").textContent = "Escuchando a la otra persona…";
+}
+
+// ---------- Frases rápidas ----------
+let myPhrases = loadJSON(MY_PHRASES_KEY);
+if (!Array.isArray(myPhrases)) myPhrases = [];
+let phraseCat = FRASES[0].cat;
+const MY_CAT = "⭐ Mis frases";
+
+function renderPhrases() {
+  const cats = $("phraseCats");
+  cats.innerHTML = "";
+  for (const name of [...FRASES.map((c) => c.cat), MY_CAT]) {
+    const b = document.createElement("button");
+    b.className = "chip" + (name === phraseCat ? " active" : "");
+    b.textContent = name;
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", name === phraseCat);
+    b.onclick = () => {
+      phraseCat = name;
+      renderPhrases();
+    };
+    cats.appendChild(b);
+  }
+  const grid = $("phraseGrid");
+  grid.innerHTML = "";
+  const mine = phraseCat === MY_CAT;
+  const items = mine ? myPhrases : FRASES.find((c) => c.cat === phraseCat).items;
+  if (mine && !items.length) {
+    grid.innerHTML = '<p class="muted small">Agrega aquí las frases que usas seguido (tu nombre, tu dirección…).</p>';
+  }
+  items.forEach((text, idx) => {
+    const b = document.createElement("button");
+    b.className = "phrase";
+    b.textContent = text;
+    b.onclick = () => {
+      finishWord();
+      emit(text);
+    };
+    if (mine) {
+      const del = document.createElement("span");
+      del.className = "del";
+      del.textContent = "✕";
+      del.setAttribute("aria-label", "Quitar frase");
+      del.onclick = (e) => {
+        e.stopPropagation();
+        myPhrases.splice(idx, 1);
+        saveJSON(MY_PHRASES_KEY, myPhrases);
+        renderPhrases();
+      };
+      b.appendChild(del);
+    }
+    grid.appendChild(b);
+  });
+  $("myPhraseForm").hidden = !mine;
+}
+
+function renderSuggestions() {
+  const box = $("suggestList");
+  box.innerHTML = "";
+  for (const text of SUGERIDAS) {
+    const b = document.createElement("button");
+    const done = Boolean(customSigns[text]);
+    b.className = "chip" + (done ? " done" : "");
+    b.textContent = (done ? "✓ " : "") + text;
+    b.onclick = () => {
+      $("signName").value = text;
+      record();
+    };
+    box.appendChild(b);
+  }
 }
 
 function loadVoices() {
@@ -421,8 +555,7 @@ function saveJSON(key, value) {
 function saveSigns() {
   saveJSON(STORAGE_KEY, customSigns);
   renderSigns();
-renderCalibStatus();
-renderWord();
+  renderSuggestions();
 }
 
 function renderSigns() {
@@ -586,8 +719,30 @@ $("recordBtn").onclick = record;
 $("signName").addEventListener("keydown", (e) => e.key === "Enter" && record());
 $("exportBtn").onclick = exportSigns;
 $("importFile").onchange = (e) => e.target.files[0] && importSigns(e.target.files[0]);
-$("clearBtn").onclick = () => ($("transcript").textContent = "");
-$("speakAllBtn").onclick = () => speak($("transcript").textContent);
+$("clearBtn").onclick = () => ($("chatLog").innerHTML = "");
+$("repeatBtn").onclick = () => speak(lastSaid);
+$("convMicBtn").onclick = toggleConvMic;
+if (!canListen) {
+  $("convMicBtn").disabled = true;
+  $("convMicStatus").textContent = "Este navegador no puede transcribir voz: pide a la otra persona que escriba.";
+}
+$("sayForm").onsubmit = (e) => {
+  e.preventDefault();
+  const text = $("sayText").value.trim();
+  if (!text) return;
+  finishWord();
+  emit(text);
+  $("sayText").value = "";
+};
+$("myPhraseForm").onsubmit = (e) => {
+  e.preventDefault();
+  const text = $("myPhraseText").value.trim();
+  if (!text) return;
+  myPhrases.push(text);
+  saveJSON(MY_PHRASES_KEY, myPhrases);
+  $("myPhraseText").value = "";
+  renderPhrases();
+};
 $("testVoiceBtn").onclick = () => speak("Hola, así sonará mi voz.");
 $("muteChk").onchange = (e) => {
   settings.muted = e.target.checked;
@@ -643,6 +798,8 @@ for (const tab of document.querySelectorAll(".tab")) {
     $("modeAlphabet").hidden = mode !== "alphabet";
     alphabet.setActive(mode === "alphabet");
     if (mode !== "sign") {
+      convListener.stop();
+      setConvMicIdle();
       // Sin cámara ni voz sintética: ahorra batería y evita que el micrófono se oiga a sí mismo.
       if (running) stopCamera();
       if ("speechSynthesis" in window) speechSynthesis.cancel();
@@ -656,6 +813,8 @@ if ("speechSynthesis" in window) {
   speechSynthesis.onvoiceschanged = loadVoices;
 }
 renderSigns();
+renderSuggestions();
+renderPhrases();
 renderCalibStatus();
 renderWord();
 

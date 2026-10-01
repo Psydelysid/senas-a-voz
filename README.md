@@ -2,7 +2,10 @@
 
 Aplicación web que traduce en tiempo real, en la computadora o en el celular:
 
-- **✋ Señas → Voz:** la cámara reconoce el **abecedario de la LSM** mientras deletreas y dice las palabras en voz alta. También reconoce señas de palabras completas que tú le enseñes.
+- **💬 Conversación:** todo en una pantalla para platicar cara a cara.
+  - La persona sorda se expresa **con señas** (la cámara reconoce el abecedario LSM y las señas que le enseñes), **con frases rápidas** de uso diario o **escribiendo**, y la app lo dice en voz alta.
+  - Lo que dice la persona oyente aparece en **subtítulos grandes**.
+  - Toda la plática queda registrada como un chat.
 - **🎤 Voz → Señas:** el micrófono escucha lo que se dice y lo muestra en LSM. Las palabras que enseñaste aparecen con su seña y las demás se deletrean con el abecedario LSM, con manos animadas.
 - **🔤 Abecedario:** las 29 letras de la LSM, con su ilustración, su descripción y la animación de las que llevan movimiento.
 
@@ -16,7 +19,13 @@ Las ilustraciones son esquemáticas y las genera la propia app con un modelo 3D 
 
 ## Cómo usarla
 
-### Señas → Voz (deletreo)
+### Conversación
+
+- **Frases rápidas:** saludos, cortesía, respuestas, comunicarse («Soy sorda», «Más despacio, por favor»…), necesidades, salud y emergencias, y preguntas. Un toque y la app la dice. En «⭐ Mis frases» puedes guardar las tuyas.
+- **Escribir:** escribe cualquier cosa y pulsa «🔊 Decir».
+- **Subtítulos:** pulsa «🎤 Escuchar» y lo que dice la otra persona aparece en grande. El micrófono se pausa solo mientras la app habla, para no transcribir su propia voz.
+
+### Deletreo con señas
 1. Pulsa **Encender cámara** y da permiso.
 2. Haz cada letra y sostenla ~0.6 s; aparece en la línea «Deletreando».
 3. Para las letras con movimiento, haz la forma y muévela (por ejemplo, la L moviéndola de lado a lado es LL).
@@ -25,7 +34,7 @@ Las ilustraciones son esquemáticas y las genera la propia app con un modelo 3D 
 
 **Calibrar (muy recomendado):** en «Calibrar el abecedario con mi mano», la app te muestra cada letra y graba cómo la haces tú. Toma un par de minutos y mejora mucho el reconocimiento.
 
-**Señas de palabras:** la mayoría de las palabras en LSM tienen su propia seña, casi siempre con movimiento. Enséñalas en «Enseñar señas de palabras»: escribe la palabra, pulsa Grabar y haz la seña durante 3 s. Se guardan en tu navegador y puedes exportarlas o importarlas.
+**Señas de palabras y expresiones cotidianas:** en LSM, la mayoría de las palabras y expresiones («gracias», «¿dónde está el baño?»…) tienen su propia seña, casi siempre con movimiento, posición en el cuerpo y expresión facial. La app no las inventa: quien sabe LSM las graba una vez. En «Enseñar señas de palabras» hay una lista de **expresiones cotidianas sugeridas**: toca una, haz su seña 3 segundos y desde entonces la cámara la reconoce y la dice en voz alta. En «Voz → Señas» también aparece con su seña. Las señas se guardan en tu navegador y puedes exportarlas o importarlas, por ejemplo para pasarlas a otro teléfono. Para consultar cómo se hace una seña, usa el [Diccionario de Lengua de Señas Mexicana (SEP)](https://educacionespecial.sep.gob.mx/storage/recursos/2023/05/xzrfl019nV-4Diccionario_lengua_%20Senas.pdf).
 
 ### Voz → Señas
 Pulsa **Escuchar** y habla, o escribe un texto. Funciona en Chrome (Android/PC) y en Safari (iPhone, iOS 14.5+). En Chrome, el navegador envía el audio a Google para transcribirlo.

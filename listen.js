@@ -2,6 +2,7 @@
 // Las palabras que el usuario enseñó se muestran con su seña; las demás se deletrean con el
 // abecedario de la Lengua de Señas Mexicana (LSM).
 import { LETTER_BY_KEY, drawLetter, spellWord } from "./lsm.js";
+import { canListen, createListener } from "./speech.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -204,75 +205,46 @@ export function initListen({ getSigns }) {
   }
 
   // ----- Reconocimiento de voz -----
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const micBtn = $("micBtn");
   const status = $("micStatus");
-  let rec = null;
-  let listening = false;
+  const listener = createListener({
+    getLang: () => settings.lang,
+    onFinal: enqueue,
+    onInterim: (text) => ($("interim").textContent = text),
+    onError: (msg) => {
+      status.textContent = msg;
+      if (!listener.listening) setIdle();
+    },
+  });
 
-  if (!Recognition) {
+  if (!canListen) {
     micBtn.disabled = true;
     status.textContent =
       "Este navegador no puede transcribir voz. Usa Chrome (Android/PC) o Safari (iPhone), o escribe el texto abajo.";
   }
 
+  function setIdle() {
+    micBtn.textContent = "🎤 Escuchar";
+    micBtn.classList.remove("listening");
+  }
+
   function startListening() {
-    const r = new Recognition();
-    rec = r;
-    r.lang = settings.lang;
-    // Frases cortas y reinicio automático: más fiable en móviles que el modo continuo.
-    r.continuous = false;
-    r.interimResults = true;
-    r.onresult = (e) => {
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i];
-        if (r.isFinal) enqueue(r[0].transcript);
-        else interim += r[0].transcript;
-      }
-      $("interim").textContent = interim;
-    };
-    r.onerror = (e) => {
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        status.textContent = "No se dio permiso al micrófono. Actívalo en el navegador.";
-        stopListening();
-      } else if (e.error === "network") {
-        status.textContent = "El reconocimiento de voz necesita conexión a internet.";
-      }
-    };
-    r.onend = () => {
-      $("interim").textContent = "";
-      if (!listening || rec !== r) return;
-      try {
-        r.start();
-      } catch {
-        setTimeout(() => {
-          if (listening && rec === r) r.start();
-        }, 300);
-      }
-    };
-    listening = true;
-    r.start();
+    listener.start();
     micBtn.textContent = "Dejar de escuchar";
     micBtn.classList.add("listening");
     status.textContent = "Escuchando… habla con normalidad.";
   }
 
   function stopListening() {
-    listening = false;
-    rec?.abort();
-    micBtn.textContent = "🎤 Escuchar";
-    micBtn.classList.remove("listening");
+    listener.stop();
+    setIdle();
     if (status.textContent.startsWith("Escuchando")) status.textContent = "";
   }
 
-  micBtn.onclick = () => (listening ? stopListening() : startListening());
+  micBtn.onclick = () => (listener.listening ? stopListening() : startListening());
   $("langSelect").onchange = (e) => {
     settings.lang = e.target.value;
-    if (listening) {
-      stopListening();
-      startListening();
-    }
+    listener.restart();
   };
   $("signSpeed").oninput = (e) => {
     settings.speed = Number(e.target.value);

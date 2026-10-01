@@ -14,7 +14,7 @@
     <h1>Señas a Voz</h1>
     <p class="sub">Traduce Lengua de Señas Mexicana (LSM) a voz y voz a LSM, en tiempo real.</p>
     <nav class="tabs" role="tablist">
-      <button class="tab active" role="tab" data-mode="sign" aria-selected="true">✋ Señas → Voz</button>
+      <button class="tab active" role="tab" data-mode="sign" aria-selected="true">💬 Conversación</button>
       <button class="tab" role="tab" data-mode="voice" aria-selected="false">🎤 Voz → Señas</button>
       <button class="tab" role="tab" data-mode="alphabet" aria-selected="false">🔤 Abecedario</button>
     </nav>
@@ -52,15 +52,39 @@
         </span>
       </div>
 
+      <div class="transcript-box they-box">
+        <div class="row between">
+          <h2>🗣️ La otra persona dice</h2>
+          <button id="convMicBtn" class="primary">🎤 Escuchar</button>
+        </div>
+        <p id="theySay" class="they-say muted">Pulsa «Escuchar» para ver aquí, en grande, lo que te dicen.</p>
+        <p id="theyInterim" class="interim muted"></p>
+        <p id="convMicStatus" class="muted small"></p>
+      </div>
+
+      <div class="transcript-box">
+        <h2>🧏 Expresarme rápido</h2>
+        <div id="phraseCats" class="chips" role="tablist"></div>
+        <div id="phraseGrid" class="phrase-grid"></div>
+        <form id="myPhraseForm" class="row" hidden>
+          <input id="myPhraseText" type="text" placeholder="Nueva frase para tener a la mano" maxlength="120">
+          <button type="submit">Agregar</button>
+        </form>
+        <form id="sayForm" class="row say-form">
+          <input id="sayText" type="text" placeholder="Escribe algo y la app lo dice" maxlength="300">
+          <button type="submit" class="primary">🔊 Decir</button>
+        </form>
+      </div>
+
       <div class="transcript-box">
         <div class="row between">
-          <h2>Transcripción</h2>
+          <h2>Conversación</h2>
           <div class="row">
-            <button id="speakAllBtn">Decir todo</button>
+            <button id="repeatBtn">🔁 Repetir lo último</button>
             <button id="clearBtn">Borrar</button>
           </div>
         </div>
-        <p id="transcript" class="transcript"></p>
+        <div id="chatLog" class="chat-log" aria-live="polite"></div>
       </div>
     </section>
 
@@ -113,6 +137,9 @@
           <input id="signName" type="text" placeholder="Ej.: Gracias" maxlength="60">
           <button id="recordBtn" class="primary">Grabar</button>
         </div>
+        <p class="small"><b>Expresiones cotidianas sugeridas</b> <span class="muted">(toca una para grabar su seña; ✓ = ya grabada)</span></p>
+        <div id="suggestList" class="chips wrap"></div>
+        <p class="muted small">¿No sabes cómo se hace una seña? Consulta el <a href="https://educacionespecial.sep.gob.mx/storage/recursos/2023/05/xzrfl019nV-4Diccionario_lengua_%20Senas.pdf" target="_blank" rel="noopener">Diccionario de Lengua de Señas Mexicana (SEP)</a>.</p>
         <ul id="signList" class="sign-list"></ul>
         <div class="row">
           <button id="exportBtn">Exportar</button>
@@ -177,7 +204,7 @@
       </details>
       <details open>
         <summary>¿Qué señas muestra?</summary>
-        <p class="muted small">Las palabras que enseñaste en <b>Señas → Voz</b> se muestran con su seña, animada tal como la grabaste.</p>
+        <p class="muted small">Las palabras que enseñaste en <b>💬 Conversación</b> se muestran con su seña, animada tal como la grabaste.</p>
         <p class="muted small">Las demás palabras se deletrean con el abecedario de la LSM, incluidas LL, RR y Ñ.</p>
       </details>
     </aside>
