@@ -2,6 +2,7 @@ import { initListen } from "./listen.js";
 import { initAlphabet } from "./alphabet.js";
 import { FRASES, SUGERIDAS } from "./frases.js";
 import { canListen, createListener } from "./speech.js";
+import { loadWordSigns, frameFeature, reduceHand, resample, matchSequence, SEQ_LEN } from "./palabras.js";
 import {
   LETTERS,
     STATIC_LETTER,
@@ -17,6 +18,8 @@ const VISION_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+const POSE_URL =
+  "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
 const STORAGE_KEY = "senas-a-voz:signs";
 const CALIB_KEY = "senas-a-voz:lsm-calibracion";
 const MY_PHRASES_KEY = "senas-a-voz:mis-frases";
@@ -31,6 +34,10 @@ const ctx = canvas.getContext("2d");
 // ---------- Estado ----------
 let vision = null; // módulo de MediaPipe
 let landmarker = null;
+let poser = null; // postura del cuerpo: dónde se hace la seña (cara, pecho…)
+let lastPose = null;
+let frameCount = 0;
+let wordDict = null; // diccionario de señas de palabras (MSL-150)
 let drawer = null;
 let running = false;
 let lastVideoTime = -1;
@@ -40,6 +47,8 @@ const settings = {
   tolerance: 0.3, // señas propias
   letterTol: 0.45, // abecedario LSM
   wordGapMs: 1300, // sin mano este tiempo = fin de palabra
+  words: true, // reconocer señas de palabras del diccionario LSM
+  wordTol: 0.55,
   speakLetters: false,
   rate: 1,
   muted: false,
@@ -140,6 +149,7 @@ function trackMotion(lm, now, since) {
 
 // ---------- Deletreo ----------
 let word = [];
+let wordTimes = []; // cuándo se aceptó cada letra (para deshacerlas si era una seña de palabra)
 let lastHandAt = 0;
 let dyn = null; // forma sostenida que puede convertirse en letra con movimiento
 
@@ -148,8 +158,9 @@ function renderWord() {
   $("spellRow").classList.toggle("empty", !word.length);
 }
 
-function addLetter(letter) {
+function addLetter(letter, now) {
   word.push(letter);
+  wordTimes.push(now);
   renderWord();
   if (settings.speakLetters) speak(letter.toLowerCase());
 }
@@ -158,6 +169,7 @@ function finishWord() {
   if (!word.length) return;
   const text = word.join("").toLowerCase();
   word = [];
+  wordTimes = [];
   renderWord();
   emit(text);
 }
@@ -167,8 +179,12 @@ function checkMotion(moving, edgeOn) {
   if (!dyn || dyn.upgraded || !moving) return;
   const letter = dynamicLetter(dyn.shape, edgeOn);
   if (!letter) return;
-  if (dyn.pending) word.push(letter);
-  else word[word.length - 1] = letter;
+  if (dyn.pending) {
+    word.push(letter);
+    wordTimes.push(dyn.since);
+  } else {
+    word[word.length - 1] = letter;
+  }
   dyn.upgraded = true;
   renderWord();
   showCaption(letter);
@@ -220,7 +236,7 @@ function accept(label, now) {
   const shape = label.slice(2);
   const letter = STATIC_LETTER[shape];
   if (letter) {
-    addLetter(letter);
+    addLetter(letter, now);
     showCaption(letter);
     dyn = { shape, pending: false, upgraded: false, since: now };
   } else {
@@ -429,6 +445,17 @@ async function start() {
         opts.baseOptions.delegate = "CPU";
         landmarker = await HandLandmarker.createFromOptions(fileset, opts);
       }
+      // Postura y diccionario de palabras: si fallan, el deletreo sigue funcionando.
+      vision.PoseLandmarker.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: POSE_URL, delegate: opts.baseOptions.delegate },
+        runningMode: "VIDEO",
+        numPoses: 1,
+      })
+        .then((p) => (poser = p))
+        .catch((e) => console.warn("Sin postura:", e));
+      loadWordSigns()
+        .then((d) => (wordDict = d))
+        .catch((e) => console.warn("Sin diccionario de palabras:", e));
     }
     status.textContent = "Pidiendo permiso para la cámara…";
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -458,6 +485,8 @@ function stopCamera() {
   video.srcObject?.getTracks().forEach((t) => t.stop());
   video.srcObject = null;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  lastPose = null;
+  wordBuf.length = 0;
   update(null, performance.now());
   $("placeholder").hidden = false;
   $("startBtn").disabled = false;
@@ -470,6 +499,10 @@ function loop() {
   if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
     lastVideoTime = video.currentTime;
     const result = landmarker.detectForVideo(video, now);
+    // La postura cambia despacio: basta calcularla un cuadro sí y otro no.
+    if (poser && settings.words && frameCount++ % 2 === 0) {
+      lastPose = poser.detectForVideo(video, now).landmarks?.[0] || null;
+    }
     draw(result);
     process(result, now);
   }
@@ -486,6 +519,8 @@ function draw(result) {
 
 function process(result, now) {
   if (!result.landmarks.length) {
+    flushPending(now);
+    lastWord.dropped = true;
     update(null, now);
     trail.length = 0;
     if (word.length && now - lastHandAt > settings.wordGapMs) finishWord();
@@ -524,6 +559,90 @@ function process(result, now) {
   update(label, now);
   const edgeOn = dist(lm[5], lm[17]) < dist(lm[0], lm[9]) * 0.4;
   checkMotion(moving, edgeOn);
+  spotWords(result, now);
+}
+
+// ---------- Señas de palabras (diccionario LSM) ----------
+const wordBuf = [];
+let lastSpot = 0;
+let wordCooldown = 0;
+let pending = null; // mejor coincidencia hasta ahora; se acepta cuando deja de mejorar
+let lastWord = { id: null, t: 0, dropped: true };
+
+/**
+ * Busca, en los últimos 0.8–1.7 s, una seña del diccionario. Compara la trayectoria de las manos
+ * respecto a los hombros y su forma con las grabaciones (DTW).
+ */
+function spotWords(result, now) {
+  if (!settings.words || !wordDict || !lastPose) return;
+  const ls = lastPose[11];
+  const rs = lastPose[12];
+  if (!ls || !rs) return;
+  const aspect = video.videoWidth / video.videoHeight || 4 / 3;
+  // Cada mano detectada se asigna al lado del cuerpo cuya muñeca (según la postura) está más cerca.
+  const hands = { l: null, r: null };
+  const d2 = (a, b) => (a && b ? ((a.x - b.x) * aspect) ** 2 + (a.y - b.y) ** 2 : Infinity);
+  for (const hlm of result.landmarks) {
+    let side = d2(hlm[0], lastPose[16]) <= d2(hlm[0], lastPose[15]) ? "r" : "l";
+    if (hands[side]) side = side === "r" ? "l" : "r";
+    hands[side] = reduceHand(hlm);
+  }
+  wordBuf.push({ t: now, f: frameFeature(ls, rs, hands, aspect) });
+  while (wordBuf.length && now - wordBuf[0].t > 2000) wordBuf.shift();
+  if (now - lastSpot < 200 || now < wordCooldown) return;
+  lastSpot = now;
+
+  let best = null;
+  for (const win of [800, 1200, 1700]) {
+    const frames = wordBuf.filter((e) => now - e.t <= win);
+    if (frames.length < 10 || now - frames[0].t < win * 0.8) continue;
+    if (handTravel(frames) < 0.5) continue; // sin movimiento: se deja al deletreo
+    const r = matchSequence(wordDict, resample(frames.map((e) => e.f), SEQ_LEN));
+    if (!best || r.d < best.d) best = { ...r, start: frames[0].t };
+  }
+  const good = best && best.d < settings.wordTol && best.d / best.d2 < 0.8 ? best : null;
+  // Se espera al punto de mejor coincidencia: mientras siga mejorando, se actualiza.
+  if (good && (!pending || (good.best === pending.best && good.d < pending.d))) {
+    pending = { ...good, t: now };
+  } else if (pending && (!good || good.best !== pending.best || good.d >= pending.d || now - pending.t > 400)) {
+    flushPending(now);
+  }
+}
+
+function flushPending(now) {
+  if (!pending) return;
+  const { best: sign, start } = pending;
+  pending = null;
+  // La misma palabra no se repite hasta bajar las manos o pasar 2.5 s.
+  if (sign.id === lastWord.id && !lastWord.dropped && now - lastWord.t < 2500) return;
+  lastWord = { id: sign.id, t: now, dropped: false };
+  acceptWordSign(sign, start, now);
+}
+
+/** Recorrido total de las muñecas, en anchos de hombros. */
+function handTravel(frames) {
+  let sum = 0;
+  for (let i = 1; i < frames.length; i++) {
+    const a = frames[i - 1].f;
+    const b = frames[i].f;
+    for (const k of [0, 13]) if (a[k] && b[k]) sum += Math.hypot(b[k + 1] - a[k + 1], b[k + 2] - a[k + 2]);
+  }
+  return sum;
+}
+
+function acceptWordSign(sign, start, now) {
+  // Las letras que se colaron mientras se hacía la seña no eran letras: se quitan.
+  while (wordTimes.length && wordTimes[wordTimes.length - 1] >= start) {
+    word.pop();
+    wordTimes.pop();
+  }
+  renderWord();
+  finishWord();
+  emit(sign.word);
+  wordBuf.length = 0;
+  wordCooldown = now + 1000;
+  dyn = null;
+  stab.spoken = stab.label; // la forma que quedó en la mano no cuenta como letra nueva
 }
 
 /** Rasgos de forma (3D, del modelo de MediaPipe) y orientación (en la imagen). */
@@ -749,12 +868,21 @@ $("muteChk").onchange = (e) => {
   if (settings.muted) speechSynthesis.cancel();
 };
 $("speakLettersChk").onchange = (e) => (settings.speakLetters = e.target.checked);
+$("wordsChk").onchange = (e) => {
+  settings.words = e.target.checked;
+  wordBuf.length = 0;
+};
+$("wordTol").oninput = (e) => {
+  settings.wordTol = Number(e.target.value);
+  $("wordTolVal").textContent = settings.wordTol.toFixed(2);
+};
 $("letterTol").oninput = (e) => {
   settings.letterTol = Number(e.target.value);
   $("letterTolVal").textContent = settings.letterTol.toFixed(2);
 };
 $("backspaceBtn").onclick = () => {
   word.pop();
+  wordTimes.pop();
   renderWord();
 };
 $("finishBtn").onclick = finishWord;
@@ -819,4 +947,10 @@ renderCalibStatus();
 renderWord();
 
 // Pruebas automáticas: con ?debug en la URL se puede alimentar el reconocimiento sin cámara.
-if (new URLSearchParams(location.search).has("debug")) window.__debug = { process };
+if (new URLSearchParams(location.search).has("debug")) {
+  window.__debug = {
+    process,
+    setPose: (p) => (lastPose = p),
+    loadWords: async () => (wordDict = await loadWordSigns()),
+  };
+}

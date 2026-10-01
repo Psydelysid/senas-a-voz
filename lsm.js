@@ -363,9 +363,14 @@ export function drawLetter(ctx, key, t = 0, area = null) {
   }
   items.sort((a, b) => a.z - b.z);
 
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(A.x, A.y, A.w, A.h); // el antebrazo no se sale del área
+  ctx.clip();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   for (const it of items) it.draw();
+  ctx.restore();
 
   function capsule(a, b, w) {
     ctx.beginPath();

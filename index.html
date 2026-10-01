@@ -16,7 +16,7 @@
     <nav class="tabs" role="tablist">
       <button class="tab active" role="tab" data-mode="sign" aria-selected="true">💬 Conversación</button>
       <button class="tab" role="tab" data-mode="voice" aria-selected="false">🎤 Voz → Señas</button>
-      <button class="tab" role="tab" data-mode="alphabet" aria-selected="false">🔤 Abecedario</button>
+      <button class="tab" role="tab" data-mode="alphabet" aria-selected="false">📖 Diccionario</button>
     </nav>
   </header>
 
@@ -113,6 +113,15 @@
         </label>
         <label>Tolerancia de mis señas <span id="tolVal">0.30</span>
           <input id="tol" type="range" min="0.10" max="0.60" step="0.02" value="0.30">
+        </label>
+      </details>
+
+      <details open>
+        <summary>Señas de palabras (diccionario LSM)</summary>
+        <p class="muted small">Reconoce 149 señas de palabras grabadas por una persona sorda nativa en LSM: sí, no, bien, mal, días, meses, números, familia, verbos, salud y cuerpo. Haz la seña completa frente a la cámara, con los hombros a la vista. Puedes verlas todas en <b>📖 Diccionario</b>. <i>En prueba:</i> se aprendió de una sola persona, así que puede fallar.</p>
+        <label class="check"><input id="wordsChk" type="checkbox" checked> Reconocer señas de palabras</label>
+        <label>Tolerancia de palabras <span id="wordTolVal">0.55</span>
+          <input id="wordTol" type="range" min="0.30" max="0.90" step="0.01" value="0.55">
         </label>
       </details>
 
@@ -220,13 +229,23 @@
           <p id="alphaDesc"></p>
         </div>
       </div>
+      <div class="chips" role="tablist">
+        <button id="dictLettersBtn" class="chip active" role="tab" aria-selected="true">🔤 Abecedario</button>
+        <button id="dictWordsBtn" class="chip" role="tab" aria-selected="false">💬 Palabras (149)</button>
+      </div>
       <div id="alphabetGrid" class="alpha-grid"></div>
+      <div id="wordsPane" hidden>
+        <input id="wordSearch" type="search" placeholder="Buscar palabra…" class="search">
+        <div id="wordCats" class="chips"></div>
+        <div id="wordGrid" class="word-grid"><p class="muted">Cargando señas…</p></div>
+      </div>
     </section>
     <aside class="panel">
       <details open>
-        <summary>Sobre este abecedario</summary>
+        <summary>Sobre este diccionario</summary>
         <p class="muted small">Es el alfabeto manual de la Lengua de Señas Mexicana, según el diccionario <i>Manos con voz</i> (CONAPRED / Libre Acceso A.C.). Las ilustraciones son esquemáticas y están generadas por la app. Ante cualquier duda, sigue a la comunidad sorda y al diccionario.</p>
         <p class="muted small">Las letras marcadas con ↻ llevan movimiento.</p>
+        <p class="muted small"><b>Señas de palabras:</b> conjunto de datos MSL-150, grabado por una persona sorda nativa en LSM. Autor: Armando de Jesús Becerril Carrillo, Universidad Anáhuac México Norte (<a href="https://doi.org/10.5281/zenodo.17783312" target="_blank" rel="noopener">doi:10.5281/zenodo.17783312</a>), licencia CC BY 4.0. Se muestran como esqueleto de cuerpo y manos, sin la expresión facial.</p>
       </details>
     </aside>
   </main>

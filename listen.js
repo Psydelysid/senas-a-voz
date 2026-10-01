@@ -3,6 +3,9 @@
 // abecedario de la Lengua de Señas Mexicana (LSM).
 import { LETTER_BY_KEY, drawLetter, spellWord } from "./lsm.js";
 import { canListen, createListener } from "./speech.js";
+import { normalize } from "./text.js";
+import { loadWordSigns, findSign, drawSign } from "./palabras.js";
+export { normalize };
 
 const $ = (id) => document.getElementById(id);
 
@@ -18,18 +21,6 @@ const CONNECTIONS = [
 
 const MAX_PHRASE_WORDS = 4;
 
-/** minúsculas, sin acentos (pero conservando la ñ) ni puntuación */
-export function normalize(text) {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/(?!̃)[̀-ͯ]/g, "")
-    .normalize("NFC")
-    .replace(/[^a-z0-9ñ\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 export function buildDictionary(customSigns) {
   const dict = new Map();
   for (const [name, samples] of Object.entries(customSigns)) {
@@ -40,14 +31,21 @@ export function buildDictionary(customSigns) {
 }
 
 /** Convierte texto en una lista de señas a mostrar. */
-export function tokenize(text, dict, spell) {
-  const words = normalize(text).split(" ").filter(Boolean);
+export function tokenize(text, dict, spell, lsm = null) {
+  // Palabras con acentos (para distinguir «sí» de «si») y su forma normalizada.
+  const raw = text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter((w) => normalize(w));
+  const words = raw.map(normalize);
   const tokens = [];
   for (let i = 0; i < words.length; ) {
     let matched = false;
     for (let len = Math.min(MAX_PHRASE_WORDS, words.length - i); len >= 1; len--) {
       const phrase = words.slice(i, i + len).join(" ");
-      const entry = dict.get(phrase);
+      // Primero las señas que enseñó el usuario; luego el diccionario LSM.
+      let entry = dict.get(phrase);
+      if (!entry && lsm) {
+        const sign = findSign(lsm, phrase, raw.slice(i, i + len).join(" "));
+        if (sign) entry = { type: "lsm", label: sign.word, sign };
+      }
       if (entry) {
         tokens.push({ kind: "sign", word: phrase, entry });
         i += len;
@@ -143,7 +141,21 @@ export function initListen({ getSigns }) {
     how.textContent = "";
 
     const entry = token.entry;
-    if (entry?.type === "custom") {
+    if (entry?.type === "lsm") {
+      // Seña del diccionario LSM: la grabación de una persona sorda, cuadro a cuadro.
+      loadWordSigns().then((lsm) => {
+        const area = { x: 0, y: 0, w: canvas.width, h: canvas.height * 0.72 };
+        const start = performance.now();
+        const n = entry.sign.frames.length;
+        const step = (now) => {
+          const i = Math.floor((Math.max(0, now - start) / 1000) * 20 * settings.speed) % (n + 8);
+          drawSign(ctx, lsm, entry.sign, Math.min(i, n - 1), area); // pausa breve al final
+          anim = requestAnimationFrame(step);
+        };
+        anim = requestAnimationFrame(step);
+      });
+      how.textContent = `Seña LSM: ${entry.label}`;
+    } else if (entry?.type === "custom") {
       // Reproduce las muestras grabadas: así se ve también el movimiento de la seña.
       const frames = entry.samples.slice(0, 90).map(samplePoints);
       const box = boundingBox(frames);
@@ -178,6 +190,7 @@ export function initListen({ getSigns }) {
 
   function durationOf(token) {
     const moving = token.kind === "letter" && LETTER_BY_KEY[token.letter]?.motion;
+    if (token.entry?.type === "lsm") return ((token.entry.sign.frames.length + 8) / 20) * 1000 / settings.speed;
     const base = token.kind !== "letter" ? 1600 : moving ? 1400 : 800;
     return base / settings.speed;
   }
@@ -195,13 +208,18 @@ export function initListen({ getSigns }) {
     setTimeout(playNext, durationOf(token));
   }
 
+  // En cadena, para respetar el orden aunque el diccionario LSM tarde en cargar la primera vez.
+  let chain = Promise.resolve();
   function enqueue(text) {
-    const tokens = tokenize(text, buildDictionary(getSigns()), settings.spell);
-    if (!tokens.length) return;
-    const log = $("heardLog");
-    log.textContent = (log.textContent ? log.textContent + " " : "") + text.trim();
-    queue.push(...tokens);
-    if (!playing) playNext();
+    chain = chain.then(async () => {
+      const lsm = await loadWordSigns().catch(() => null);
+      const tokens = tokenize(text, buildDictionary(getSigns()), settings.spell, lsm);
+      if (!tokens.length) return;
+      const log = $("heardLog");
+      log.textContent = (log.textContent ? log.textContent + " " : "") + text.trim();
+      queue.push(...tokens);
+      if (!playing) playNext();
+    });
   }
 
   // ----- Reconocimiento de voz -----

@@ -7,11 +7,23 @@ Aplicación web que traduce en tiempo real, en la computadora o en el celular:
   - Lo que dice la persona oyente aparece en **subtítulos grandes**.
   - Toda la plática queda registrada como un chat.
 - **🎤 Voz → Señas:** el micrófono escucha lo que se dice y lo muestra en LSM. Las palabras que enseñaste aparecen con su seña y las demás se deletrean con el abecedario LSM, con manos animadas.
-- **🔤 Abecedario:** las 29 letras de la LSM, con su ilustración, su descripción y la animación de las que llevan movimiento.
+- **📖 Diccionario:** las 29 letras de la LSM y **149 señas de palabras** grabadas por una persona sorda nativa, con buscador y categorías.
 
 👉 **App publicada:** https://psydelysid.github.io/senas-a-voz/ (una vez activado GitHub Pages)
 
-## Referencia
+## Señas de palabras (149)
+
+Vienen del conjunto de datos **MSL-150**, grabado por una persona sorda nativa en LSM:
+> Becerril Carrillo, Armando de Jesús (Universidad Anáhuac México Norte). *MSL-150: Mexican Sign Language (MSL) Keypoint Dataset for Domain-Specific Vocabulary*. https://doi.org/10.5281/zenodo.17783312 — licencia CC BY 4.0.
+
+Incluye: sí, no, bien, mal, pregunta, duda, yo, nosotros; hoy, ayer, mañana, ahora, siempre, nunca, diario; días de la semana; meses; números del 1 al 10; cómo, cuántos, para qué, por qué; mamá, papá, esposo, esposa, hijo, hija; verbos (comer, beber, dormir, trabajar, estudiar, ir, caminar, correr…); estados (cansado, confundido, estresado, frío, caliente, mejor, peor…); animales; 45 señas de salud (doctor, hospital, dolor, ambulancia, emergencia, pastillas…); y 19 partes del cuerpo. Se omitió «garganta», cuya grabación está dañada.
+
+- **Voz → Señas:** cuando una palabra tiene seña, se muestra la grabación animada (cuerpo y manos); si no, se deletrea. Las palabras ambiguas solo cuentan con acento: «sí» (no «si»), «papá» (no «papa»), «¿cómo?» (no «como»), «¿por qué?» (no «porque»).
+- **Conversación (en prueba):** la cámara reconoce estas señas comparando el movimiento de tus manos respecto a tus hombros con las grabaciones. Hay que tener los hombros a la vista. El reconocimiento se aprendió de una sola persona, así que puede fallar con otras. Hay un control de tolerancia y se puede desactivar.
+
+El archivo `senas-lsm.json` se generó con solo la grabación original y dos variantes de cada seña: unos 800 KB comprimido, en lugar de los 4.4 GB del conjunto completo.
+
+## Referencia del abecedario
 
 El abecedario sigue *Manos con voz. Diccionario de Lengua de Señas Mexicana* (CONAPRED / Libre Acceso A.C.), páginas 15-19. Tiene 29 letras: 21 estáticas y 8 con movimiento (J, K, LL, Ñ, Q, RR, X, Z). La LSM **no** es el abecedario estadounidense (ASL): letras como F, G, H, P y T son distintas.
 
@@ -57,11 +69,14 @@ Settings → Pages → *Deploy from a branch* → `main` / `(root)` → Save. Pa
 - La app reconoce el **deletreo** (abecedario) y las palabras que le enseñes. **No** traduce la LSM completa: la gramática, la expresión facial y el uso del espacio quedan fuera.
 - Las letras se reconocen comparando tu mano con plantillas del modelo 3D. Sin calibrar, las letras muy parecidas se confunden: S/T/A/E, M/N, R/U y C/O.
 - Las letras con movimiento se detectan de forma aproximada: forma inicial + movimiento.
+- Las señas de palabras se muestran como esqueleto del cuerpo y las manos, **sin la expresión facial**, que en LSM también comunica.
+- Las palabras más comunes que no están en MSL-150 (por ejemplo «hola», «gracias», «por favor») no tienen seña precargada: grábalas en «Enseñar señas de palabras» o usa las frases rápidas.
 - La precisión depende de la luz y de que la mano se vea completa.
 
 ## Cómo funciona
 
-- [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker) detecta 21 puntos 3D por mano, en el navegador.
+- [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker) detecta 21 puntos 3D por mano, y Pose Landmarker (modelo ligero) los hombros, todo en el navegador.
+- `palabras.js` reconoce las señas de palabras con DTW sobre la trayectoria de las manos respecto a los hombros.
 - `lsm.js` define cada letra como una postura de un modelo 3D de la mano. Ese modelo sirve para dibujar las letras y como plantilla para reconocerlas, con rasgos que no dependen de cómo esté girada la mano ni de si es la derecha o la izquierda.
 - Las señas de palabras se reconocen con k vecinos más cercanos sobre las muestras grabadas.
 - La voz usa la Web Speech API: `speechSynthesis` para hablar y `SpeechRecognition` para escuchar.

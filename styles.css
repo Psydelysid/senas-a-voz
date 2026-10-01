@@ -136,7 +136,7 @@ video, #overlay {
 
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .row.between { justify-content: space-between; }
-input[type="text"] {
+input[type="text"], input[type="search"] {
   flex: 1;
   min-width: 0;
   padding: 8px 10px;
@@ -354,3 +354,19 @@ button.listening { background: #dc2626; border-color: #dc2626; }
 .msg.me { align-self: flex-end; background: var(--accent); color: var(--accent-text); border-bottom-right-radius: 4px; }
 .msg.them { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
 a { color: var(--accent); }
+.search {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+.word-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+.word-grid button.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
