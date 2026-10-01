@@ -158,9 +158,6 @@ button, .file-btn {
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.builtins { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-.builtins td { padding: 3px 0; border-bottom: 1px solid var(--border); }
-.builtins td:last-child { text-align: right; font-weight: 600; }
 
 .sign-list { list-style: none; padding: 0; margin: 10px 0; }
 .sign-list li {
@@ -233,6 +230,71 @@ button.listening { background: #dc2626; border-color: #dc2626; }
   main { padding: 0 12px; gap: 12px; }
   header, footer { padding: 12px; }
   button, .file-btn { padding: 10px 14px; } /* objetivos táctiles más grandes */
+  .tab { font-size: 0.85rem; padding: 10px 4px; }
   .live { flex-wrap: wrap; }
 }
 .interim:empty { display: none; }
+
+/* ---------- Deletreo ---------- */
+.spell-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.spelling { flex: 1; font-size: 1.6rem; font-weight: 800; letter-spacing: 0.12em; min-width: 4ch; }
+.spelling::after { content: "▏"; color: var(--accent); animation: blink 1s steps(1) infinite; }
+.spell-row.empty .spelling::after { opacity: 0.4; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.hint {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 34%;
+  max-width: 200px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1b1f24;
+  border-radius: 10px;
+  text-align: center;
+  font-weight: 700;
+}
+.hint canvas { width: 100%; height: auto; display: block; }
+
+/* ---------- Abecedario ---------- */
+.alpha-detail {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+#alphaCanvas { width: min(45%, 240px); height: auto; flex-shrink: 0; }
+.alpha-key { font-size: 3rem; font-weight: 800; line-height: 1; }
+.alpha-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 8px;
+}
+.alpha-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 4px;
+  font-weight: 700;
+}
+.alpha-card canvas { width: 100%; height: auto; }
+.alpha-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+@media (max-width: 600px) {
+  .alpha-detail { flex-direction: column; text-align: center; }
+  #alphaCanvas { width: 60%; }
+}

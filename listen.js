@@ -1,19 +1,10 @@
 // Modo "Voz → Señas": escucha el micrófono, transcribe y muestra cada palabra como seña.
-// Las palabras con seña (predefinida o enseñada por el usuario) se muestran como seña;
-// las demás se deletrean letra por letra.
+// Las palabras que el usuario enseñó se muestran con su seña; las demás se deletrean con el
+// abecedario de la Lengua de Señas Mexicana (LSM).
+import { LETTER_BY_KEY, drawLetter, spellWord } from "./lsm.js";
 
 const $ = (id) => document.getElementById(id);
 
-const BUILTINS = [
-  { label: "Hola", emoji: "🖐️", how: "Mano abierta", words: ["hola", "buenas"] },
-  { label: "Bien", emoji: "👍", how: "Pulgar arriba", words: ["bien", "muy bien"] },
-  { label: "Mal", emoji: "👎", how: "Pulgar abajo", words: ["mal", "muy mal"] },
-  { label: "Paz", emoji: "✌️", how: "Índice y medio", words: ["paz"] },
-  { label: "Te quiero", emoji: "🤟", how: "Pulgar, índice y meñique", words: ["te quiero", "te amo"] },
-  { label: "Llámame", emoji: "🤙", how: "Pulgar y meñique", words: ["llamame", "llamar", "telefono"] },
-  { label: "Un momento", emoji: "☝️", how: "Índice arriba", words: ["un momento", "espera", "espere"] },
-  { label: "De acuerdo", emoji: "👌", how: "Círculo con pulgar e índice", words: ["de acuerdo", "ok", "okay", "vale"] },
-];
 
 // Conexiones entre los 21 puntos de la mano (mismo orden que MediaPipe).
 const CONNECTIONS = [
@@ -40,10 +31,6 @@ export function normalize(text) {
 
 export function buildDictionary(customSigns) {
   const dict = new Map();
-  for (const b of BUILTINS) {
-    for (const w of b.words) dict.set(w, { type: "builtin", ...b });
-  }
-  // Las señas enseñadas por el usuario tienen prioridad.
   for (const [name, samples] of Object.entries(customSigns)) {
     const key = normalize(name);
     if (key && samples.length) dict.set(key, { type: "custom", label: name, samples });
@@ -70,8 +57,8 @@ export function tokenize(text, dict, spell) {
     if (matched) continue;
     const word = words[i++];
     if (spell) {
-      for (const ch of word) {
-        tokens.push({ kind: "letter", word, letter: ch.toUpperCase(), entry: dict.get(ch) || null });
+      for (const letter of spellWord(word)) {
+        tokens.push({ kind: "letter", word, letter, entry: dict.get(letter.toLowerCase()) || null });
       }
     } else {
       tokens.push({ kind: "unknown", word });
@@ -168,9 +155,17 @@ export function initListen({ getSigns }) {
       };
       anim = requestAnimationFrame(step);
       how.textContent = token.kind === "letter" ? token.letter : entry.label;
-    } else if (entry?.type === "builtin") {
-      big.textContent = entry.emoji;
-      how.textContent = token.kind === "letter" ? token.letter : `${entry.label} — ${entry.how}`;
+    } else if (token.kind === "letter" && LETTER_BY_KEY[token.letter]) {
+      const letter = LETTER_BY_KEY[token.letter];
+      const area = { x: 0, y: 0, w: canvas.width, h: canvas.height * 0.72 };
+      const start = performance.now();
+      const step = (now) => {
+        const t = letter.motion ? (Math.max(0, now - start) / durationOf(token)) % 1 : 0.3;
+        drawLetter(ctx, token.letter, t, area);
+        if (letter.motion) anim = requestAnimationFrame(step);
+      };
+      anim = requestAnimationFrame(step);
+      how.textContent = `Letra ${token.letter}`;
     } else if (token.kind === "letter") {
       big.textContent = token.letter;
       how.textContent = "Letra";
@@ -181,7 +176,8 @@ export function initListen({ getSigns }) {
   }
 
   function durationOf(token) {
-    const base = token.kind === "letter" ? 700 : 1600;
+    const moving = token.kind === "letter" && LETTER_BY_KEY[token.letter]?.motion;
+    const base = token.kind !== "letter" ? 1600 : moving ? 1400 : 800;
     return base / settings.speed;
   }
 

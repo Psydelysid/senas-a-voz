@@ -1,4 +1,14 @@
 import { initListen } from "./listen.js";
+import { initAlphabet } from "./alphabet.js";
+import {
+  LETTERS,
+    STATIC_LETTER,
+  dynamicLetter,
+  shapeFeatures,
+  orientFeature,
+  classifyShape,
+  drawLetter,
+} from "./lsm.js";
 
 // MediaPipe se carga al encender la cámara, así el modo Voz → Señas funciona aunque falle.
 const VISION_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
@@ -6,7 +16,9 @@ const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/w
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const STORAGE_KEY = "senas-a-voz:signs";
+const CALIB_KEY = "senas-a-voz:lsm-calibracion";
 const RECORD_MS = 3000;
+const CALIB_MS = 1500;
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -22,52 +34,27 @@ let lastVideoTime = -1;
 
 const settings = {
   holdMs: 600,
-  tolerance: 0.3,
-  useBuiltins: true,
+  tolerance: 0.3, // señas propias
+  letterTol: 0.45, // abecedario LSM
+  wordGapMs: 1300, // sin mano este tiempo = fin de palabra
+  speakLetters: false,
   rate: 1,
   muted: false,
   voice: null,
 };
 
 // Señas entrenadas: { [nombre]: [{ hands: 1|2, f: number[] }, ...] }
-let customSigns = loadSigns();
+let customSigns = loadJSON(STORAGE_KEY);
+// Calibración del abecedario: { [forma]: [{ f, o }, ...] }
+let calibration = loadJSON(CALIB_KEY);
+let calibList = flattenCalibration();
 
 let recording = null; // { name, until, samples: [] }
+let calibrating = null; // { shape, until, samples: [] }
 
 // ---------- Geometría ----------
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const palmSize = (lm) => dist(lm[0], lm[9]) || 1e-6;
-
-/** Qué dedos están extendidos: [pulgar, índice, medio, anular, meñique] */
-function fingerStates(lm) {
-  const w = lm[0];
-  const ext = (tip, pip) => dist(lm[tip], w) > dist(lm[pip], w) * 1.15;
-  const ps = palmSize(lm);
-  const thumb = dist(lm[4], lm[9]) > ps * 0.7 && dist(lm[4], lm[5]) > ps * 0.4;
-  return [thumb, ext(8, 6), ext(12, 10), ext(16, 14), ext(20, 18)];
-}
-
-/** Señas predefinidas por forma de la mano (una mano). */
-function classifyBuiltin(lm) {
-  const [t, i, m, r, p] = fingerStates(lm);
-  const ps = palmSize(lm);
-  const key = [t, i, m, r, p].map(Number).join("");
-
-  if (dist(lm[4], lm[8]) < ps * 0.35 && m && r && p) return "De acuerdo";
-  if (key === "11111") return "Hola";
-  if (key === "11001") return "Te quiero";
-  if (key === "10001") return "Llámame";
-  if (i && m && !r && !p) return "Paz";
-  if (key === "01000" && lm[8].y < lm[5].y) return "Un momento";
-  if (key === "10000") {
-    const dx = lm[4].x - lm[2].x;
-    const dy = lm[4].y - lm[2].y;
-    if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > ps * 0.4) {
-      return dy < 0 ? "Bien" : "Mal";
-    }
-  }
-  return null;
-}
 
 /**
  * Vector de rasgos invariable a posición y tamaño.
@@ -126,13 +113,73 @@ function classifyCustom(feat) {
   return count >= needed && nearest < settings.tolerance ? best : null;
 }
 
-// ---------- Estabilizador: una seña debe mantenerse antes de hablar ----------
+// ---------- Movimiento (letras J, K, LL, Ñ, Q, RR, X, Z) ----------
+const trail = [];
+
+/**
+ * ¿La mano se está moviendo? Mira el recorrido de la punta del índice en los últimos 0.7 s,
+ * contando solo desde `since` (cuando se aceptó la forma): el salto de una letra a otra no cuenta.
+ */
+function trackMotion(lm, now, since) {
+  const ps = palmSize(lm);
+  trail.push({ t: now, x: lm[8].x / ps, y: lm[8].y / ps });
+  while (trail.length && now - trail[0].t > 700) trail.shift();
+  const pts = trail.filter((p) => p.t >= since);
+  let path = 0;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  pts.forEach((p, i) => {
+    if (i) path += Math.hypot(p.x - pts[i - 1].x, p.y - pts[i - 1].y);
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+  });
+  return path > 1.4 && Math.hypot(maxX - minX, maxY - minY) > 0.5;
+}
+
+// ---------- Deletreo ----------
+let word = [];
+let lastHandAt = 0;
+let dyn = null; // forma sostenida que puede convertirse en letra con movimiento
+
+function renderWord() {
+  $("spelling").textContent = word.join("");
+  $("spellRow").classList.toggle("empty", !word.length);
+}
+
+function addLetter(letter) {
+  word.push(letter);
+  renderWord();
+  if (settings.speakLetters) speak(letter.toLowerCase());
+}
+
+function finishWord() {
+  if (!word.length) return;
+  const text = word.join("").toLowerCase();
+  word = [];
+  renderWord();
+  emit(text);
+}
+
+/** Se llama en cada cuadro mientras se sostiene una forma ya aceptada. */
+function checkMotion(moving, edgeOn) {
+  if (!dyn || dyn.upgraded || !moving) return;
+  const letter = dynamicLetter(dyn.shape, edgeOn);
+  if (!letter) return;
+  if (dyn.pending) word.push(letter);
+  else word[word.length - 1] = letter;
+  dyn.upgraded = true;
+  renderWord();
+  showCaption(letter);
+}
+
+// ---------- Estabilizador: una seña debe mantenerse antes de aceptarla ----------
 const stab = { label: null, since: 0, spoken: null, emptySince: 0 };
 
+/** label: "w:<palabra>" (seña propia) · "s:<forma>" (abecedario) · null */
 function update(label, now) {
   if (label !== stab.label) {
     stab.label = label;
     stab.since = now;
+    dyn = null;
   }
   if (label === null) {
     if (!stab.emptySince) stab.emptySince = now;
@@ -144,11 +191,37 @@ function update(label, now) {
 
   const held = label ? Math.min(1, (now - stab.since) / settings.holdMs) : 0;
   $("holdBar").style.width = `${held * 100}%`;
-  $("current").textContent = label ?? "—";
+  $("current").textContent = describe(label);
 
   if (label && held >= 1 && stab.spoken !== label) {
     stab.spoken = label;
-    emit(label);
+    accept(label, now);
+  }
+}
+
+function describe(label) {
+  if (!label) return "—";
+  if (label.startsWith("w:")) return label.slice(2);
+  const shape = label.slice(2);
+  const letter = STATIC_LETTER[shape];
+  if (letter) return `Letra ${letter}`;
+  return shape === "Z0" ? "Z (muévela)" : "Q / X (muévela)";
+}
+
+function accept(label, now) {
+  if (label.startsWith("w:")) {
+    finishWord();
+    emit(label.slice(2));
+    return;
+  }
+  const shape = label.slice(2);
+  const letter = STATIC_LETTER[shape];
+  if (letter) {
+    addLetter(letter);
+    showCaption(letter);
+    dyn = { shape, pending: false, upgraded: false, since: now };
+  } else {
+    dyn = { shape, pending: true, upgraded: false, since: now };
   }
 }
 
@@ -157,12 +230,16 @@ let captionTimer = 0;
 function emit(text) {
   const t = $("transcript");
   t.textContent = (t.textContent ? t.textContent + " " : "") + text;
+  showCaption(text);
+  speak(text);
+}
+
+function showCaption(text) {
   const cap = $("caption");
   cap.textContent = text;
   cap.classList.add("show");
   clearTimeout(captionTimer);
   captionTimer = setTimeout(() => cap.classList.remove("show"), 1800);
-  speak(text);
 }
 
 function speak(text, interrupt = true) {
@@ -276,9 +353,22 @@ function draw(result) {
 function process(result, now) {
   if (!result.landmarks.length) {
     update(null, now);
+    trail.length = 0;
+    if (word.length && now - lastHandAt > settings.wordGapMs) finishWord();
     return;
   }
+  lastHandAt = now;
   const feat = features(result);
+  const lm = result.landmarks[0];
+
+  if (calibrating) {
+    if (now < calibrating.until && result.landmarks.length === 1) {
+      calibrating.samples.push(letterFeatures(result));
+      $("countdown").textContent = `● ${calibrating.samples.length}`;
+    }
+    update(null, now);
+    return;
+  }
 
   if (recording) {
     if (now < recording.until) {
@@ -289,26 +379,50 @@ function process(result, now) {
     return;
   }
 
-  let label = classifyCustom(feat);
-  if (!label && settings.useBuiltins) label = classifyBuiltin(result.landmarks[0]);
+  const moving = trackMotion(lm, now, dyn ? dyn.since : Infinity);
+  const custom = classifyCustom(feat);
+  let label = custom ? `w:${custom}` : null;
+  if (!label && result.landmarks.length === 1) {
+    const { f, o } = letterFeatures(result);
+    const r = classifyShape(f, o, calibList, settings.letterTol);
+    if (r) label = `s:${r.label}`;
+  }
   update(label, now);
+  const edgeOn = dist(lm[5], lm[17]) < dist(lm[0], lm[9]) * 0.4;
+  checkMotion(moving, edgeOn);
+}
+
+/** Rasgos de forma (3D, del modelo de MediaPipe) y orientación (en la imagen). */
+function letterFeatures(result) {
+  const lm = result.landmarks[0];
+  const world = result.worldLandmarks?.[0] || lm;
+  const aspect = video.videoWidth / video.videoHeight || 4 / 3;
+  return {
+    f: shapeFeatures(world),
+    o: orientFeature((lm[9].x - lm[0].x) * aspect, lm[9].y - lm[0].y),
+  };
 }
 
 // ---------- Entrenamiento de señas propias ----------
-function loadSigns() {
+function loadJSON(key) {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+    return JSON.parse(localStorage.getItem(key)) || {};
   } catch {
     return {};
   }
 }
-function saveSigns() {
+function saveJSON(key, value) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(customSigns));
+    localStorage.setItem(key, JSON.stringify(value));
   } catch {
-    /* almacenamiento no disponible: las señas solo duran esta sesión */
+    /* almacenamiento no disponible: los datos solo duran esta sesión */
   }
+}
+function saveSigns() {
+  saveJSON(STORAGE_KEY, customSigns);
   renderSigns();
+renderCalibStatus();
+renderWord();
 }
 
 function renderSigns() {
@@ -398,6 +512,74 @@ async function importSigns(file) {
   }
 }
 
+// ---------- Calibración del abecedario ----------
+// Formas estáticas a calibrar (las letras con movimiento usan la forma con la que empiezan).
+const CALIB_STEPS = [
+  ...LETTERS.filter((l) => !l.motion).map((l) => ({ shape: l.shape, key: l.key, title: l.key })),
+  { shape: "Z0", key: "Z", title: "Z (sin moverla)" },
+  { shape: "GARRA", key: "X", title: "Q / X (sin moverla)" },
+];
+let calibAbort = false;
+let calibSkip = false;
+
+function flattenCalibration() {
+  return Object.entries(calibration).flatMap(([label, samples]) =>
+    samples.map((s) => ({ label, f: s.f, o: s.o })),
+  );
+}
+
+function renderCalibStatus() {
+  const n = Object.keys(calibration).length;
+  $("calibStatus").textContent = n
+    ? `${n} de ${CALIB_STEPS.length} formas calibradas con tu mano.`
+    : "Sin calibrar: se usan las formas de referencia.";
+}
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function calibrate() {
+  if (!running) {
+    alert("Primero enciende la cámara.");
+    return;
+  }
+  calibAbort = false;
+  $("calibBtn").hidden = true;
+  $("calibControls").hidden = false;
+  const hint = $("hint");
+  const hintCtx = $("hintCanvas").getContext("2d");
+  const cd = $("countdown");
+  hint.hidden = false;
+  cd.hidden = false;
+  for (const step of CALIB_STEPS) {
+    if (calibAbort) break;
+    calibSkip = false;
+    $("hintTitle").textContent = `Haz la ${step.title}`;
+    drawLetter(hintCtx, step.key, 0.3);
+    for (const n of [3, 2, 1]) {
+      cd.textContent = n;
+      await wait(800);
+      if (calibAbort || calibSkip) break;
+    }
+    if (calibAbort) break;
+    if (calibSkip) continue;
+    calibrating = { shape: step.shape, until: performance.now() + CALIB_MS, samples: [] };
+    await wait(CALIB_MS);
+    const { samples } = calibrating;
+    calibrating = null;
+    if (samples.length >= 8) {
+      calibration[step.shape] = samples.slice(-40);
+      calibList = flattenCalibration();
+      saveJSON(CALIB_KEY, calibration);
+      renderCalibStatus();
+    }
+  }
+  calibrating = null;
+  hint.hidden = true;
+  cd.hidden = true;
+  $("calibBtn").hidden = false;
+  $("calibControls").hidden = true;
+}
+
 // ---------- Controles ----------
 $("startBtn").onclick = start;
 $("recordBtn").onclick = record;
@@ -411,7 +593,26 @@ $("muteChk").onchange = (e) => {
   settings.muted = e.target.checked;
   if (settings.muted) speechSynthesis.cancel();
 };
-$("builtinChk").onchange = (e) => (settings.useBuiltins = e.target.checked);
+$("speakLettersChk").onchange = (e) => (settings.speakLetters = e.target.checked);
+$("letterTol").oninput = (e) => {
+  settings.letterTol = Number(e.target.value);
+  $("letterTolVal").textContent = settings.letterTol.toFixed(2);
+};
+$("backspaceBtn").onclick = () => {
+  word.pop();
+  renderWord();
+};
+$("finishBtn").onclick = finishWord;
+$("calibBtn").onclick = calibrate;
+$("calibSkipBtn").onclick = () => (calibSkip = true);
+$("calibStopBtn").onclick = () => (calibAbort = true);
+$("calibClearBtn").onclick = () => {
+  if (!confirm("¿Borrar la calibración del abecedario?")) return;
+  calibration = {};
+  calibList = [];
+  saveJSON(CALIB_KEY, calibration);
+  renderCalibStatus();
+};
 $("rate").oninput = (e) => {
   settings.rate = Number(e.target.value);
   $("rateVal").textContent = settings.rate.toFixed(1);
@@ -427,6 +628,7 @@ $("tol").oninput = (e) => {
 
 // ---------- Pestañas ----------
 const listener = initListen({ getSigns: () => customSigns });
+const alphabet = initAlphabet();
 
 for (const tab of document.querySelectorAll(".tab")) {
   tab.onclick = () => {
@@ -438,13 +640,14 @@ for (const tab of document.querySelectorAll(".tab")) {
     }
     $("modeSign").hidden = mode !== "sign";
     $("modeVoice").hidden = mode !== "voice";
-    if (mode === "voice") {
+    $("modeAlphabet").hidden = mode !== "alphabet";
+    alphabet.setActive(mode === "alphabet");
+    if (mode !== "sign") {
       // Sin cámara ni voz sintética: ahorra batería y evita que el micrófono se oiga a sí mismo.
       if (running) stopCamera();
       if ("speechSynthesis" in window) speechSynthesis.cancel();
-    } else {
-      listener.stop();
     }
+    if (mode !== "voice") listener.stop();
   };
 }
 
@@ -453,3 +656,8 @@ if ("speechSynthesis" in window) {
   speechSynthesis.onvoiceschanged = loadVoices;
 }
 renderSigns();
+renderCalibStatus();
+renderWord();
+
+// Pruebas automáticas: con ?debug en la URL se puede alimentar el reconocimiento sin cámara.
+if (new URLSearchParams(location.search).has("debug")) window.__debug = { process };

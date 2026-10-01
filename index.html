@@ -12,10 +12,11 @@
 <body>
   <header>
     <h1>Señas a Voz</h1>
-    <p class="sub">Traduce señas a voz y voz a señas, en tiempo real.</p>
+    <p class="sub">Traduce Lengua de Señas Mexicana (LSM) a voz y voz a LSM, en tiempo real.</p>
     <nav class="tabs" role="tablist">
       <button class="tab active" role="tab" data-mode="sign" aria-selected="true">✋ Señas → Voz</button>
       <button class="tab" role="tab" data-mode="voice" aria-selected="false">🎤 Voz → Señas</button>
+      <button class="tab" role="tab" data-mode="alphabet" aria-selected="false">🔤 Abecedario</button>
     </nav>
   </header>
 
@@ -31,11 +32,24 @@
         </div>
         <div id="caption" class="caption" aria-live="polite"></div>
         <div id="countdown" class="countdown" hidden></div>
+        <div id="hint" class="hint" hidden>
+          <canvas id="hintCanvas" width="200" height="200"></canvas>
+          <div id="hintTitle"></div>
+        </div>
       </div>
 
       <div class="live">
         <div><span class="muted">Detectando:</span> <strong id="current">—</strong></div>
         <div class="meter"><div id="holdBar"></div></div>
+      </div>
+
+      <div id="spellRow" class="spell-row empty">
+        <span class="muted small">Deletreando:</span>
+        <span id="spelling" class="spelling"></span>
+        <span class="row">
+          <button id="backspaceBtn" aria-label="Borrar última letra">⌫</button>
+          <button id="finishBtn">Terminar palabra</button>
+        </span>
       </div>
 
       <div class="transcript-box">
@@ -64,32 +78,37 @@
       </details>
 
       <details open>
-        <summary>Reconocimiento</summary>
+        <summary>Abecedario LSM</summary>
+        <p class="muted small">Deletrea con el abecedario de la Lengua de Señas Mexicana. Sostén cada letra un momento. Para terminar la palabra, baja la mano: la app la dice en voz alta. Las letras con movimiento (J, K, LL, Ñ, Q, RR, X, Z) se hacen moviendo la mano. Consulta cómo es cada letra en la pestaña <b>🔤 Abecedario</b>.</p>
+        <label class="check"><input id="speakLettersChk" type="checkbox"> Decir también cada letra</label>
         <label>Mantener la seña <span id="holdVal">600</span> ms
           <input id="hold" type="range" min="250" max="1500" step="50" value="600">
         </label>
-        <label>Tolerancia de señas entrenadas <span id="tolVal">0.30</span>
+        <label>Tolerancia del abecedario <span id="letterTolVal">0.45</span>
+          <input id="letterTol" type="range" min="0.20" max="0.80" step="0.02" value="0.45">
+        </label>
+        <label>Tolerancia de mis señas <span id="tolVal">0.30</span>
           <input id="tol" type="range" min="0.10" max="0.60" step="0.02" value="0.30">
         </label>
-        <label class="check"><input id="builtinChk" type="checkbox" checked> Usar señas predefinidas</label>
-        <table class="builtins">
-          <tbody>
-            <tr><td>🖐️ Mano abierta</td><td>Hola</td></tr>
-            <tr><td>👍 Pulgar arriba</td><td>Bien</td></tr>
-            <tr><td>👎 Pulgar abajo</td><td>Mal</td></tr>
-            <tr><td>✌️ Índice y medio</td><td>Paz</td></tr>
-            <tr><td>🤟 Pulgar, índice y meñique</td><td>Te quiero</td></tr>
-            <tr><td>🤙 Pulgar y meñique</td><td>Llámame</td></tr>
-            <tr><td>☝️ Índice arriba</td><td>Un momento</td></tr>
-            <tr><td>👌 Círculo con pulgar e índice</td><td>De acuerdo</td></tr>
-            <tr><td>✊ Puño</td><td><em>pausa / reinicio</em></td></tr>
-          </tbody>
-        </table>
       </details>
 
       <details open>
-        <summary>Enseñar mis propias señas</summary>
-        <p class="muted small">Escribe la palabra o frase, pulsa <b>Grabar</b> y haz la seña frente a la cámara durante 3 segundos (muévela un poco). Graba la misma seña 2–3 veces para que la reconozca mejor. Funciona con una o dos manos.</p>
+        <summary>Calibrar el abecedario con mi mano</summary>
+        <p class="muted small">Cada mano es distinta. La calibración te muestra cada letra y graba cómo la haces tú (unos 2 segundos por letra), y así el reconocimiento mejora mucho. Puedes saltarte letras.</p>
+        <p id="calibStatus" class="small"></p>
+        <div class="row">
+          <button id="calibBtn" class="primary">Calibrar</button>
+          <span id="calibControls" class="row" hidden>
+            <button id="calibSkipBtn">Saltar letra</button>
+            <button id="calibStopBtn">Detener</button>
+          </span>
+          <button id="calibClearBtn">Borrar calibración</button>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Enseñar señas de palabras</summary>
+        <p class="muted small">La LSM tiene señas para palabras completas («gracias», «familia»…), y la mayoría llevan movimiento. Escribe la palabra, pulsa <b>Grabar</b> y haz su seña frente a la cámara durante 3 segundos. Grábala 2 o 3 veces para que la reconozca mejor. Funciona con una o dos manos. En «Voz → Señas», estas palabras se muestran con su seña en vez de deletrearse.</p>
         <div class="row">
           <input id="signName" type="text" placeholder="Ej.: Gracias" maxlength="60">
           <button id="recordBtn" class="primary">Grabar</button>
@@ -158,8 +177,29 @@
       </details>
       <details open>
         <summary>¿Qué señas muestra?</summary>
-        <p class="muted small">Las 8 señas predefinidas (también reconoce «te amo», «ok», «espera»…) y todas las que enseñes en <b>Señas → Voz</b>, animadas tal como las grabaste.</p>
-        <p class="muted small">Las palabras sin seña se deletrean. Si enseñas el alfabeto (graba señas llamadas «A», «B», «C»…), el deletreo usará tus señas.</p>
+        <p class="muted small">Las palabras que enseñaste en <b>Señas → Voz</b> se muestran con su seña, animada tal como la grabaste.</p>
+        <p class="muted small">Las demás palabras se deletrean con el abecedario de la LSM, incluidas LL, RR y Ñ.</p>
+      </details>
+    </aside>
+  </main>
+
+  <main id="modeAlphabet" hidden>
+    <section class="stage">
+      <div class="alpha-detail">
+        <canvas id="alphaCanvas" width="360" height="360"></canvas>
+        <div>
+          <div id="alphaKey" class="alpha-key"></div>
+          <div id="alphaMotion" class="muted small"></div>
+          <p id="alphaDesc"></p>
+        </div>
+      </div>
+      <div id="alphabetGrid" class="alpha-grid"></div>
+    </section>
+    <aside class="panel">
+      <details open>
+        <summary>Sobre este abecedario</summary>
+        <p class="muted small">Es el alfabeto manual de la Lengua de Señas Mexicana, según el diccionario <i>Manos con voz</i> (CONAPRED / Libre Acceso A.C.). Las ilustraciones son esquemáticas y están generadas por la app. Ante cualquier duda, sigue a la comunidad sorda y al diccionario.</p>
+        <p class="muted small">Las letras marcadas con ↻ llevan movimiento.</p>
       </details>
     </aside>
   </main>
